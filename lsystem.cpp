@@ -1,6 +1,6 @@
-// #define SDL_MAIN_HANDLED
-// #include <SDL.h>
-// #include <glad/glad.h>
+#define SDL_MAIN_HANDLED
+#include <SDL.h>
+#include <glad/glad.h>
 #include <iostream>
 
 
