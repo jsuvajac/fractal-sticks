@@ -133,6 +133,12 @@ int main(int argc, char* argv[]) {
         const Uint8* keyboard = NULL;
 
         vector<Lsystem> fractals = {
+			{ // hexperiment
+                {"+", "-", "[", "]"},
+                "F",
+                {{"F", "F++F++F++F++F++F-F"}},
+                M_PI / 6
+            },
             { // pretty tree
                 {"+", "-", "[", "]"},
                 "X",
@@ -162,6 +168,12 @@ int main(int argc, char* argv[]) {
                 "F+F+F+F",
                 {{"F", "FF+F-F+F+FF"}},
                 M_PI/2
+            },
+			{ // heart
+                {"+", "-", "[", "]"},
+                "F",
+                {{"F", "FFFFFFFFF--------FFFFFFFF+F+F+F+F+F+FF----FF+F+F+F+F++FFFFFFFF"}},
+                M_PI / 6
             }
         };
 
@@ -170,7 +182,7 @@ int main(int argc, char* argv[]) {
 
         // runtime parameters
         size_t num_iterations = 2;
-        double forward_distance = 10;
+        double forward_distance = 20;
         double offset_angle = M_PI;
         size_t fractal_index = 0;
 
