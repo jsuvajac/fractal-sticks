@@ -8,7 +8,7 @@
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
-// #include <glad/glad.h>
+#include <glad/glad.h>
 
 using namespace std;
 
@@ -27,6 +27,40 @@ struct Lsystem {
     // angle magnitude for "+" and "-"
     double angle;
 };
+
+void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, SDL_GLContext *gl_context, size_t width, size_t height) {
+	// create the window, renderer and gl context
+	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+		std::cerr << "SDL2 video subsystem couldn't be initialized. Error: " << SDL_GetError() << std::endl;
+		exit(1);
+	}
+
+	// window
+    SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+	*window = SDL_CreateWindow(
+		"L-Systems Explorer",
+		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+		WIDTH, HEIGHT, window_flags
+	);
+
+	// renderer
+	*renderer = SDL_CreateRenderer(*window, -1, SDL_RENDERER_ACCELERATED);
+	if (*renderer == nullptr) {
+		std::cerr << "SDL2 Renderer couldn't be created. Error: "
+				<< SDL_GetError()
+				<< std::endl;
+		exit(1);
+	}
+
+	// create GL context
+	*gl_context = SDL_GL_CreateContext(*window);
+	// Load GL extensions using glad
+	if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress)) {
+		std::cerr << "Failed to initialize the OpenGL context." << std::endl;
+		exit(1);
+	}
+	// std::cout << "OpenGL version loaded: " << GLVersion.major << "." << GLVersion.minor << std::endl;
+}
 
 string run_step(map<string, string> rules, string step, vector<string> constants) {
     // run single grammar generation step
@@ -108,159 +142,171 @@ void draw(SDL_Renderer *renderer, vector<int> line_buffer, int offset_x, int off
     for (size_t i = 0; i < line_buffer.size()/4; i++) {
         // update colour
         double percentage = (double)i / (double)line_buffer.size();
-        double lerp_size = 0xCC;
-        int col = (int)round(percentage*lerp_size + 0xFF - lerp_size);
-        SDL_SetRenderDrawColor(renderer, 0, col, col, SDL_ALPHA_OPAQUE);
+		double lerp_size = 0.70;
+        double col = percentage*lerp_size + 1 - lerp_size;
+		glColor3d(0, col, col);
 
         int x1 = line_buffer[i*4 + 0] + offset_x + WIDTH  / 2;
-        int y1 = line_buffer[i*4 + 1] + offset_y + HEIGHT / 2;
+        int y1 = -line_buffer[i*4 + 1] + offset_y + HEIGHT / 2;
         int x2 = line_buffer[i*4 + 2] + offset_x + WIDTH  / 2;
-        int y2 = line_buffer[i*4 + 3] + offset_y + HEIGHT / 2;
-
+        int y2 = -line_buffer[i*4 + 3] + offset_y + HEIGHT / 2;
         // draw line
-        if ((x1 > 0 && x1 < WIDTH && y1 > 0 && y1 < HEIGHT) ||
-            (x2 > 0 && x2 < WIDTH && y2 > 0 && y2 < HEIGHT)) {
-            SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+        if ((x1 > 0 && x1 < WIDTH && y1 > 0 && y1 < HEIGHT) || (x2 > 0 && x2 < WIDTH && y2 > 0 && y2 < HEIGHT)) {
+			glVertex2f(2* (float)x1 / (float)WIDTH - 1, 2* (float)y1 / (float)HEIGHT - 1);
+			glVertex2f(2* (float)x2 / (float)WIDTH - 1, 2* (float)y2 / (float)HEIGHT - 1);
         }
     }
 }
 
-
 int main(int argc, char* argv[]) {
-    if (SDL_Init(SDL_INIT_VIDEO) == 0) {
-        SDL_Window* window = NULL;
-        SDL_Renderer* renderer = NULL;
-        const Uint8* keyboard = NULL;
+	const Uint8 *keyboard = NULL;
+	SDL_Window *window = NULL;
+	SDL_Renderer *renderer = NULL;
+	SDL_GLContext gl_context;
 
-        vector<Lsystem> fractals = {
-			{ // hexperiment
-                {"+", "-", "[", "]"},
-                "F",
-                {{"F", "F++F++F++F++F++F-F"}},
-                M_PI / 6
-            },
-            { // pretty tree
-                {"+", "-", "[", "]"},
-                "X",
-                { {"X", "F+[[X]-X]-F[-FX]+X"}, {"F", "FF"}},
-                M_PI / 4
-            },
-            { // conifer
-                {"+", "-", "[", "]", "F"},
-                "Y",
-                {{"X", "X[-FFF][+FFF]FX"}, {"Y", "YFX[+Y][-Y]"}},
-                25.7 *M_PI/180
-            },
-            { // prong bush
-                {"+", "-", "[", "]"},
-                "F",
-                {{"F", "FF+[+F-F-F]-[-F+F+F]"} },
-                22.5*M_PI/180
-            },
-            { // hilbert
-                {"+", "-", "[", "]", "F"},
-                "X",
-                {{"X", "-YF+XFX+FY-"}, {"Y", "+XF-YFY-FX+"}},
-                M_PI/2
-            },
-            { // tile
-                {"+", "-", "[", "]"},
-                "F+F+F+F",
-                {{"F", "FF+F-F+F+FF"}},
-                M_PI/2
-            },
-			{ // heart
-                {"+", "-", "[", "]"},
-                "F",
-                {{"F", "FFFFFFFFF--------FFFFFFFF+F+F+F+F+F+FF----FF+F+F+F+F++FFFFFFFF"}},
-                M_PI / 6
-            }
-        };
+	// start window and gl context
+	start_window_renderer_and_gl(&window, &renderer, &gl_context, WIDTH, HEIGHT);
+    SDL_GL_MakeCurrent(window, gl_context);
 
-        string lsystem_instruction = "";
-        vector<int> lsystem_lines;
+	// set initial gl state
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+    SDL_GL_SetSwapInterval(0); // 1 -> vsync : 0 -> NO vsync 
 
-        // runtime parameters
-        size_t num_iterations = 2;
-        double forward_distance = 20;
-        double offset_angle = M_PI;
-        size_t fractal_index = 0;
+    //line smoothing
+    glEnable( GL_LINE_SMOOTH );
+    glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        if (SDL_CreateWindowAndRenderer(WIDTH, HEIGHT, 0, &window, &renderer) == 0) {
-            bool is_done = false;
-            bool should_draw = true;
-            bool should_generate = true;
+	// blur and AA
+	glEnable(GL_MULTISAMPLE);
 
-            int screen_offset_x = 0;
-            int screen_offset_y = 0;
+	vector<Lsystem> fractals = {
+		{ // hexperiment
+			{"+", "-", "[", "]"},
+			"F",
+			{{"F", "F++F++F++F++F++F-F"}},
+			M_PI / 6
+		},
+		{ // pretty tree
+			{"+", "-", "[", "]"},
+			"X",
+			{ {"X", "F+[[X]-X]-F[-FX]+X"}, {"F", "FF"}},
+			M_PI / 4
+		},
+		{ // conifer
+			{"+", "-", "[", "]", "F"},
+			"Y",
+			{{"X", "X[-FFF][+FFF]FX"}, {"Y", "YFX[+Y][-Y]"}},
+			25.7 *M_PI/180
+		},
+		{ // prong bush
+			{"+", "-", "[", "]"},
+			"F",
+			{{"F", "FF+[+F-F-F]-[-F+F+F]"} },
+			22.5*M_PI/180
+		},
+		{ // hilbert
+			{"+", "-", "[", "]", "F"},
+			"X",
+			{{"X", "-YF+XFX+FY-"}, {"Y", "+XF-YFY-FX+"}},
+			M_PI/2
+		},
+		{ // tile
+			{"+", "-", "[", "]"},
+			"F+F+F+F",
+			{{"F", "FF+F-F+F+FF"}},
+			M_PI/2
+		},
+	};
 
-            while (!is_done) {
-                if (should_generate) {
-                    // regenerate the instruction string and cachend lines buffer
-                    Lsystem cur = fractals[fractal_index];
-                    lsystem_instruction = generate_lsystem(cur.axiom, cur.rules, cur.constants, num_iterations);
-                    lsystem_lines = generate_lines(lsystem_instruction, cur.angle, forward_distance, offset_angle);
-                    // cout << lsystem_lines.size() << endl;
-                    should_generate = false;
-                }
-                if (should_draw) {
-                    // re-draw the fractal
-                    SDL_SetRenderDrawColor(renderer, 0, 0x10, 0, SDL_ALPHA_OPAQUE);
+	string lsystem_instruction = "";
+	vector<int> lsystem_lines;
 
-                    SDL_RenderClear(renderer);
-                    SDL_SetRenderDrawColor(renderer, 0, 0xF0, 0, SDL_ALPHA_OPAQUE);
-                    draw(renderer, lsystem_lines, screen_offset_x, screen_offset_y);
-                    SDL_RenderPresent(renderer);
-                    should_draw = false;
-                }
-                SDL_Event event;
-                while (SDL_PollEvent(&event)) {
-                    switch (event.type) {
-                        case SDL_KEYDOWN:
-                            SDL_PumpEvents();
-                            keyboard = SDL_GetKeyboardState(NULL);
+	// runtime parameters
+	size_t num_iterations = 2;
+	double forward_distance = 20;
+	double offset_angle = M_PI;
+	size_t fractal_index = 0;
 
-                            switch (event.key.keysym.sym) {
-                                case SDLK_ESCAPE: is_done = true; break;
-                                // movement
-                                case SDLK_a: screen_offset_x += 100; should_draw = true; break;
-                                case SDLK_d: screen_offset_x -= 100; should_draw = true; break;
-                                case SDLK_w: screen_offset_y += 100; should_draw = true; break;
-                                case SDLK_s: screen_offset_y -= 100; should_draw = true; break;
-                                // rotation
-                                case SDLK_e: offset_angle += M_PI/4; should_generate = true; should_draw = true; break;
-                                case SDLK_q: offset_angle -= M_PI/4; should_generate = true; should_draw = true; break;
-                                // reset
-                                case SDLK_r: screen_offset_x = 0; screen_offset_y = 0; should_draw = true; break;
-                                // cycle through fractals
-                                case SDLK_f: fractal_index = (fractal_index + 1) % fractals.size(); should_generate = true; should_draw = true; break;
-                                // set number of iterations
-                                case SDLK_1: num_iterations = 1; should_generate = true; should_draw = true; break;
-                                case SDLK_2: num_iterations = 2; should_generate = true; should_draw = true; break;
-                                case SDLK_3: num_iterations = 3; should_generate = true; should_draw = true; break;
-                                case SDLK_4: num_iterations = 4; should_generate = true; should_draw = true; break;
-                                case SDLK_5: num_iterations = 5; should_generate = true; should_draw = true; break;
-                                case SDLK_6: num_iterations = 6; should_generate = true; should_draw = true; break;
-                                case SDLK_7: num_iterations = 7; should_generate = true; should_draw = true; break;
-                                case SDLK_8: num_iterations = 8; should_generate = true; should_draw = true; break;
-                                case SDLK_9: num_iterations = 9; should_generate = true; should_draw = true; break;
-                                default: break;
-                            }
-                            break;
-                        case SDL_QUIT: is_done = true; break;
-                        default: break;
-                    }
-                }
-            }
-        }
+	bool is_done = false;
+	bool should_draw = true;
+	bool should_generate = true;
 
-        if (renderer) {
-            SDL_DestroyRenderer(renderer);
-        }
-        if (window) {
-            SDL_DestroyWindow(window);
-        }
-    }
+	int screen_offset_x = 0;
+	int screen_offset_y = 0;
+
+	while (!is_done) {
+		if (should_generate) {
+			// regenerate the instruction string and cachend lines buffer
+			Lsystem cur = fractals[fractal_index];
+			lsystem_instruction = generate_lsystem(cur.axiom, cur.rules, cur.constants, num_iterations);
+			lsystem_lines = generate_lines(lsystem_instruction, cur.angle, forward_distance, offset_angle);
+			// cout << lsystem_lines.size() << endl;
+			should_generate = false;
+		}
+		if (should_draw) {
+			// re-draw the fractal
+
+			glClearColor(0, 0.05, 0, 1);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glBegin(GL_LINES);
+			draw(renderer, lsystem_lines, screen_offset_x, screen_offset_y);
+			glEnd();
+
+			SDL_GL_SwapWindow(window);
+			should_draw = false;
+		}
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
+			switch (event.type) {
+				case SDL_KEYDOWN:
+					SDL_PumpEvents();
+					keyboard = SDL_GetKeyboardState(NULL);
+
+					switch (event.key.keysym.sym) {
+						case SDLK_ESCAPE: is_done = true; break;
+						// movement
+						case SDLK_a: screen_offset_x += 100; should_draw = true; break;
+						case SDLK_d: screen_offset_x -= 100; should_draw = true; break;
+						case SDLK_w: screen_offset_y -= 100; should_draw = true; break;
+						case SDLK_s: screen_offset_y += 100; should_draw = true; break;
+						// rotation
+						case SDLK_e: offset_angle += M_PI/4; should_generate = true; should_draw = true; break;
+						case SDLK_q: offset_angle -= M_PI/4; should_generate = true; should_draw = true; break;
+						// reset
+						case SDLK_r: screen_offset_x = 0; screen_offset_y = 0; should_draw = true; break;
+						// cycle through fractals
+						case SDLK_f: fractal_index = (fractal_index + 1) % fractals.size(); should_generate = true; should_draw = true; break;
+						// set number of iterations
+						case SDLK_1: num_iterations = 1; should_generate = true; should_draw = true; break;
+						case SDLK_2: num_iterations = 2; should_generate = true; should_draw = true; break;
+						case SDLK_3: num_iterations = 3; should_generate = true; should_draw = true; break;
+						case SDLK_4: num_iterations = 4; should_generate = true; should_draw = true; break;
+						case SDLK_5: num_iterations = 5; should_generate = true; should_draw = true; break;
+						case SDLK_6: num_iterations = 6; should_generate = true; should_draw = true; break;
+						case SDLK_7: num_iterations = 7; should_generate = true; should_draw = true; break;
+						case SDLK_8: num_iterations = 8; should_generate = true; should_draw = true; break;
+						case SDLK_9: num_iterations = 9; should_generate = true; should_draw = true; break;
+						default: break;
+					}
+					break;
+				case SDL_QUIT: is_done = true; break;
+				default: break;
+			}
+		}
+	}
+
+	// cleanup
+	if (renderer) {
+		SDL_DestroyRenderer(renderer);
+	}
+	if (window) {
+		SDL_DestroyWindow(window);
+	}
+	SDL_GL_DeleteContext(gl_context);
     SDL_Quit();
     return 0;
 }
