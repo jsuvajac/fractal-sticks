@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 #include <tuple>
 #include <vector>
 #include <stack>
@@ -62,6 +63,54 @@ void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, 
 	// std::cout << "OpenGL version loaded: " << GLVersion.major << "." << GLVersion.minor << std::endl;
 }
 
+unsigned int compile_shader(unsigned int shader_type, const std::string& shader_source) {
+	unsigned int shader_id = glCreateShader(shader_type);
+
+	const char* c_source = shader_source.c_str();
+	glShaderSource(shader_id, 1, &c_source, nullptr);
+	glCompileShader(shader_id);
+
+	GLint result;
+	glGetShaderiv(shader_id, GL_COMPILE_STATUS, &result);
+
+	if (result == GL_FALSE) {
+		int length;
+		glGetShaderiv(shader_id, GL_INFO_LOG_LENGTH, &length);
+
+		GLchar* strInfoLog = new GLchar[length + 1];
+		glGetShaderInfoLog(shader_id, length, &length, strInfoLog);
+
+		fprintf(stderr, "Compilation error in shader: %s\n", strInfoLog);
+		delete[] strInfoLog;
+	}
+
+	return shader_id;
+}
+
+unsigned int load_shaders(const std::string& vertexShaderFile, const std::string& fragmentShaderFile) {
+	std::ifstream is_vs(vertexShaderFile);
+	const std::string f_vs((std::istreambuf_iterator<char>(is_vs)), std::istreambuf_iterator<char>());
+
+	std::ifstream is_fs(fragmentShaderFile);
+	const std::string f_fs((std::istreambuf_iterator<char>(is_fs)), std::istreambuf_iterator<char>());
+
+	unsigned int id = glCreateProgram();
+
+	unsigned int vs = compile_shader(GL_VERTEX_SHADER, f_vs);
+	unsigned int fs = compile_shader(GL_FRAGMENT_SHADER, f_fs);
+
+	glAttachShader(id, vs);
+	glAttachShader(id, fs);
+
+	glLinkProgram(id);
+	glValidateProgram(id);
+
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+
+	return id;
+}
+
 string run_step(map<string, string> rules, string step, vector<string> constants) {
     // run single grammar generation step
     string out;
@@ -85,10 +134,10 @@ string generate_lsystem(string axiom, map<string, string> rules, vector<string> 
     return next_step;
 }
 
-vector<int> generate_lines(string instructions, double angle_delta, double forward_distance, double angle) {
+vector<float> generate_lines(string instructions, double angle_delta, double forward_distance, double angle) {
     // run thrugh the insturction string one character at a time and run the character as an insturction
     // returns a flat array of lines serialized in order x1, y1, x2, y2
-    vector<int> out_buffer;
+    vector<float> out_buffer;
     double x = 0;
     double y = 0;
 
@@ -102,10 +151,17 @@ vector<int> generate_lines(string instructions, double angle_delta, double forwa
                 // extend (x, y) with (0, forward_distance) and rotate to by the angle
                 double new_x = x - forward_distance*sin(angle);
                 double new_y = y + forward_distance*cos(angle);
-                out_buffer.push_back((int)round(x));
-                out_buffer.push_back((int)round(y));
-                out_buffer.push_back((int)round(new_x));
-                out_buffer.push_back((int)round(new_y));
+
+				// transform to gl coordinates
+				int x1 =  x + WIDTH  / 2;
+				int y1 = -y + HEIGHT / 2;
+				int x2 =  new_x + WIDTH  / 2;
+				int y2 = -new_y + HEIGHT / 2;
+                out_buffer.push_back(2 * (float)x1 / (float)WIDTH - 1);
+                out_buffer.push_back(2 * (float)y1 / (float)HEIGHT - 1);
+                out_buffer.push_back(2 * (float)x2 / (float)WIDTH - 1);
+                out_buffer.push_back(2 * (float)y2 / (float)HEIGHT - 1);
+
                 y = new_y;
                 x = new_x;
                 break;
@@ -137,7 +193,7 @@ vector<int> generate_lines(string instructions, double angle_delta, double forwa
     return out_buffer;
 }
 
-void draw(SDL_Renderer *renderer, vector<int> line_buffer, int offset_x, int offset_y) {
+void draw(SDL_Renderer *renderer, vector<float> line_buffer, int offset_x, int offset_y) {
     // render all lines in buffer throught SDL
     for (size_t i = 0; i < line_buffer.size()/4; i++) {
         // update colour
@@ -145,16 +201,9 @@ void draw(SDL_Renderer *renderer, vector<int> line_buffer, int offset_x, int off
 		double lerp_size = 0.70;
         double col = percentage*lerp_size + 1 - lerp_size;
 		glColor3d(0, col, col);
-
-        int x1 = line_buffer[i*4 + 0] + offset_x + WIDTH  / 2;
-        int y1 = -line_buffer[i*4 + 1] + offset_y + HEIGHT / 2;
-        int x2 = line_buffer[i*4 + 2] + offset_x + WIDTH  / 2;
-        int y2 = -line_buffer[i*4 + 3] + offset_y + HEIGHT / 2;
-        // draw line
-        if ((x1 > 0 && x1 < WIDTH && y1 > 0 && y1 < HEIGHT) || (x2 > 0 && x2 < WIDTH && y2 > 0 && y2 < HEIGHT)) {
-			glVertex2f(2* (float)x1 / (float)WIDTH - 1, 2* (float)y1 / (float)HEIGHT - 1);
-			glVertex2f(2* (float)x2 / (float)WIDTH - 1, 2* (float)y2 / (float)HEIGHT - 1);
-        }
+		// draw line
+		glVertex2f(line_buffer[i*4 + 0], line_buffer[i*4 + 1]);
+		glVertex2f(line_buffer[i*4 + 2], line_buffer[i*4 + 3]);
     }
 }
 
@@ -182,6 +231,10 @@ int main(int argc, char* argv[]) {
 
 	// blur and AA
 	glEnable(GL_MULTISAMPLE);
+
+	// load global shader
+	unsigned int program_id = load_shaders("main.vert", "main.frag");
+	glUseProgram(program_id);
 
 	vector<Lsystem> fractals = {
 		{ // hexperiment
@@ -223,7 +276,7 @@ int main(int argc, char* argv[]) {
 	};
 
 	string lsystem_instruction = "";
-	vector<int> lsystem_lines;
+	vector<float> lsystem_lines;
 
 	// runtime parameters
 	size_t num_iterations = 2;
@@ -237,6 +290,7 @@ int main(int argc, char* argv[]) {
 
 	int screen_offset_x = 0;
 	int screen_offset_y = 0;
+	float zoom = 1.0;
 
 	while (!is_done) {
 		if (should_generate) {
@@ -249,6 +303,8 @@ int main(int argc, char* argv[]) {
 		}
 		if (should_draw) {
 			// re-draw the fractal
+			glUniform2f(glGetUniformLocation(program_id, "offset"), (float)screen_offset_x, (float)screen_offset_y); 
+			glUniform1f(glGetUniformLocation(program_id, "zoom"), zoom); 
 
 			glClearColor(0, 0.05, 0, 1);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -273,6 +329,9 @@ int main(int argc, char* argv[]) {
 						case SDLK_d: screen_offset_x -= 100; should_draw = true; break;
 						case SDLK_w: screen_offset_y -= 100; should_draw = true; break;
 						case SDLK_s: screen_offset_y += 100; should_draw = true; break;
+						// zoom
+						case SDLK_x: zoom *= 2; should_draw = true; break;
+						case SDLK_c: zoom /= 2; should_draw = true; break;
 						// rotation
 						case SDLK_e: offset_angle += M_PI/4; should_generate = true; should_draw = true; break;
 						case SDLK_q: offset_angle -= M_PI/4; should_generate = true; should_draw = true; break;
@@ -300,6 +359,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// cleanup
+	glDeleteProgram(program_id);
 	if (renderer) {
 		SDL_DestroyRenderer(renderer);
 	}
