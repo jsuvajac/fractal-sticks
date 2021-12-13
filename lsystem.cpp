@@ -18,6 +18,10 @@ using namespace std;
 // #define WIDTH 3440
 // #define HEIGHT 1440
 
+#define ANGLE_DELTA M_PI / 6
+#define FORWARD_DELTA 100
+#define ZOOM_FACTOR 1.8
+
 struct Lsystem {
     // grammar alphabet subset that does not have production rules
     vector<string> constants;
@@ -149,18 +153,13 @@ vector<float> generate_lines(string instructions, double angle_delta, double for
             // move forward
             case 'F': {
                 // extend (x, y) with (0, forward_distance) and rotate to by the angle
-                double new_x = x - forward_distance*sin(angle);
-                double new_y = y + forward_distance*cos(angle);
+                double new_x = x + forward_distance*sin(angle);
+                double new_y = y - forward_distance*cos(angle);
 
-				// transform to gl coordinates
-				int x1 =  x + WIDTH  / 2;
-				int y1 = -y + HEIGHT / 2;
-				int x2 =  new_x + WIDTH  / 2;
-				int y2 = -new_y + HEIGHT / 2;
-                out_buffer.push_back(2 * (float)x1 / (float)WIDTH - 1);
-                out_buffer.push_back(2 * (float)y1 / (float)HEIGHT - 1);
-                out_buffer.push_back(2 * (float)x2 / (float)WIDTH - 1);
-                out_buffer.push_back(2 * (float)y2 / (float)HEIGHT - 1);
+                out_buffer.push_back(+x);
+                out_buffer.push_back(-y);
+                out_buffer.push_back(+new_x);
+                out_buffer.push_back(-new_y);
 
                 y = new_y;
                 x = new_x;
@@ -193,18 +192,23 @@ vector<float> generate_lines(string instructions, double angle_delta, double for
     return out_buffer;
 }
 
-void draw(SDL_Renderer *renderer, vector<float> line_buffer, int offset_x, int offset_y) {
-    // render all lines in buffer throught SDL
-    for (size_t i = 0; i < line_buffer.size()/4; i++) {
-        // update colour
-        double percentage = (double)i / (double)line_buffer.size();
-		double lerp_size = 0.70;
-        double col = percentage*lerp_size + 1 - lerp_size;
-		glColor3d(0, col, col);
-		// draw line
-		glVertex2f(line_buffer[i*4 + 0], line_buffer[i*4 + 1]);
-		glVertex2f(line_buffer[i*4 + 2], line_buffer[i*4 + 3]);
-    }
+void populate_orthographic_projection_matrix(float screen_width, float screen_height, float transform[16]) {
+    float width = screen_width;
+    float height = screen_height;
+    float left = -width;
+    float right = width * 1;
+    float top = height * 1;
+    float bottom = -height;
+    float near = 0;
+    float far = 100;
+
+    transform[0] = (2 / (right - left));
+    transform[5] = (2 / (top - bottom));
+    transform[10] = -2 / (far - near);
+    transform[3] = - (right + left) / (right - left);
+    transform[7] = - (top + bottom) / (top - bottom);
+    transform[11] = -(far + near) / (far - near);
+    transform[15] = 1;
 }
 
 int main(int argc, char* argv[]) {
@@ -292,6 +296,7 @@ int main(int argc, char* argv[]) {
 	int screen_offset_y = 0;
 	float zoom = 1.0;
 
+	unsigned int vbo, vao;
 	while (!is_done) {
 		if (should_generate) {
 			// regenerate the instruction string and cachend lines buffer
@@ -299,18 +304,36 @@ int main(int argc, char* argv[]) {
 			lsystem_instruction = generate_lsystem(cur.axiom, cur.rules, cur.constants, num_iterations);
 			lsystem_lines = generate_lines(lsystem_instruction, cur.angle, forward_distance, offset_angle);
 			// cout << lsystem_lines.size() << endl;
+
+			glGenVertexArrays(1, &vao);
+			glGenBuffers(1, &vbo);
+			glBindVertexArray(vao);
+
+			glBindBuffer(GL_ARRAY_BUFFER, vbo);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(float)*lsystem_lines.size(), &lsystem_lines[0], GL_STATIC_DRAW);
+
+			glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(0);
+
+			glBindBuffer(GL_ARRAY_BUFFER, 0); 
+			glBindVertexArray(0); 
+
 			should_generate = false;
 		}
 		if (should_draw) {
 			// re-draw the fractal
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			float transform[16] = {0.0};
+			populate_orthographic_projection_matrix((float)WIDTH, (float)HEIGHT, transform);
+			glUniformMatrix4fv(glGetUniformLocation(program_id, "transform"), 1, GL_FALSE, transform);
 			glUniform2f(glGetUniformLocation(program_id, "offset"), (float)screen_offset_x, (float)screen_offset_y); 
+			glUniform1f(glGetUniformLocation(program_id, "angle"), offset_angle); 
 			glUniform1f(glGetUniformLocation(program_id, "zoom"), zoom); 
 
-			glClearColor(0, 0.05, 0, 1);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glBegin(GL_LINES);
-			draw(renderer, lsystem_lines, screen_offset_x, screen_offset_y);
-			glEnd();
+			glBindVertexArray(vao);
+			glDrawArrays(GL_LINES, 0, lsystem_lines.size());
+			glBindVertexArray(0);
 
 			SDL_GL_SwapWindow(window);
 			should_draw = false;
@@ -325,18 +348,18 @@ int main(int argc, char* argv[]) {
 					switch (event.key.keysym.sym) {
 						case SDLK_ESCAPE: is_done = true; break;
 						// movement
-						case SDLK_a: screen_offset_x += 100; should_draw = true; break;
-						case SDLK_d: screen_offset_x -= 100; should_draw = true; break;
-						case SDLK_w: screen_offset_y -= 100; should_draw = true; break;
-						case SDLK_s: screen_offset_y += 100; should_draw = true; break;
+						case SDLK_a: screen_offset_x += FORWARD_DELTA; should_draw = true; break;
+						case SDLK_d: screen_offset_x -= FORWARD_DELTA; should_draw = true; break;
+						case SDLK_w: screen_offset_y -= FORWARD_DELTA; should_draw = true; break;
+						case SDLK_s: screen_offset_y += FORWARD_DELTA; should_draw = true; break;
 						// zoom
-						case SDLK_x: zoom *= 2; should_draw = true; break;
-						case SDLK_c: zoom /= 2; should_draw = true; break;
+						case SDLK_x: zoom /= ZOOM_FACTOR; should_draw = true; break;
+						case SDLK_c: zoom *= ZOOM_FACTOR; should_draw = true; break;
 						// rotation
-						case SDLK_e: offset_angle += M_PI/4; should_generate = true; should_draw = true; break;
-						case SDLK_q: offset_angle -= M_PI/4; should_generate = true; should_draw = true; break;
+						case SDLK_e: offset_angle += ANGLE_DELTA; should_draw = true; break;
+						case SDLK_q: offset_angle -= ANGLE_DELTA; should_draw = true; break;
 						// reset
-						case SDLK_r: screen_offset_x = 0; screen_offset_y = 0; should_draw = true; break;
+						case SDLK_r: screen_offset_x = 0; screen_offset_y = 0; offset_angle = 0; should_draw = true; break;
 						// cycle through fractals
 						case SDLK_f: fractal_index = (fractal_index + 1) % fractals.size(); should_generate = true; should_draw = true; break;
 						// set number of iterations
