@@ -5,7 +5,7 @@ L-Stystems exploration
 
     WASD: movement
     q/e: rotation
-    x/z: zoom
+    x/c: zoom
     r: reset to origin
     1-9: iteration levels
     f: cycle through lsystems

@@ -138,12 +138,13 @@ string generate_lsystem(string axiom, map<string, string> rules, vector<string> 
     return next_step;
 }
 
-vector<float> generate_lines(string instructions, double angle_delta, double forward_distance, double angle) {
+vector<float> generate_lines(string instructions, double angle_delta, double forward_distance) {
     // run thrugh the insturction string one character at a time and run the character as an insturction
     // returns a flat array of lines serialized in order x1, y1, x2, y2
     vector<float> out_buffer;
     double x = 0;
     double y = 0;
+	double angle = 0;
 
     stack<tuple<double, double, double>> saved_position;
     for (size_t i = 0; i < instructions.size(); i++) {
@@ -153,8 +154,8 @@ vector<float> generate_lines(string instructions, double angle_delta, double for
             // move forward
             case 'F': {
                 // extend (x, y) with (0, forward_distance) and rotate to by the angle
-                double new_x = x + forward_distance*sin(angle);
-                double new_y = y - forward_distance*cos(angle);
+                double new_x = x - forward_distance*sin(angle);
+                double new_y = y + forward_distance*cos(angle);
 
                 out_buffer.push_back(+x);
                 out_buffer.push_back(-y);
@@ -297,12 +298,16 @@ int main(int argc, char* argv[]) {
 	float zoom = 1.0;
 
 	unsigned int vbo, vao;
+
+	float transform[16] = {0.0};
+	populate_orthographic_projection_matrix((float)WIDTH, (float)HEIGHT, transform);
+
 	while (!is_done) {
 		if (should_generate) {
 			// regenerate the instruction string and cachend lines buffer
 			Lsystem cur = fractals[fractal_index];
 			lsystem_instruction = generate_lsystem(cur.axiom, cur.rules, cur.constants, num_iterations);
-			lsystem_lines = generate_lines(lsystem_instruction, cur.angle, forward_distance, offset_angle);
+			lsystem_lines = generate_lines(lsystem_instruction, cur.angle, forward_distance);
 			// cout << lsystem_lines.size() << endl;
 
 			glGenVertexArrays(1, &vao);
@@ -321,16 +326,13 @@ int main(int argc, char* argv[]) {
 			should_generate = false;
 		}
 		if (should_draw) {
-			// re-draw the fractal
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			float transform[16] = {0.0};
-			populate_orthographic_projection_matrix((float)WIDTH, (float)HEIGHT, transform);
 			glUniformMatrix4fv(glGetUniformLocation(program_id, "transform"), 1, GL_FALSE, transform);
 			glUniform2f(glGetUniformLocation(program_id, "offset"), (float)screen_offset_x, (float)screen_offset_y); 
 			glUniform1f(glGetUniformLocation(program_id, "angle"), offset_angle); 
 			glUniform1f(glGetUniformLocation(program_id, "zoom"), zoom); 
 
+			// re-draw the fractal
+			glClear(GL_COLOR_BUFFER_BIT);
 			glBindVertexArray(vao);
 			glDrawArrays(GL_LINES, 0, lsystem_lines.size());
 			glBindVertexArray(0);
