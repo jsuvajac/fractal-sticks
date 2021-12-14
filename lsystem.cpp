@@ -57,6 +57,17 @@ void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, 
 		exit(1);
 	}
 
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    // SDL_GL_SetSwapInterval(0); // 1 -> vsync : 0 -> NO vsync 
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
 	// create GL context
 	*gl_context = SDL_GL_CreateContext(*window);
 	// Load GL extensions using glad
@@ -64,7 +75,7 @@ void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, 
 		std::cerr << "Failed to initialize the OpenGL context." << std::endl;
 		exit(1);
 	}
-	// std::cout << "OpenGL version loaded: " << GLVersion.major << "." << GLVersion.minor << std::endl;
+	std::cout << "OpenGL version loaded: " << GLVersion.major << "." << GLVersion.minor << std::endl;
 }
 
 unsigned int compile_shader(unsigned int shader_type, const std::string& shader_source) {
@@ -222,12 +233,6 @@ int main(int argc, char* argv[]) {
 	start_window_renderer_and_gl(&window, &renderer, &gl_context, WIDTH, HEIGHT);
     SDL_GL_MakeCurrent(window, gl_context);
 
-	// set initial gl state
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-    SDL_GL_SetSwapInterval(0); // 1 -> vsync : 0 -> NO vsync 
-
     //line smoothing
     glEnable( GL_LINE_SMOOTH );
     glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
@@ -236,7 +241,7 @@ int main(int argc, char* argv[]) {
 
 	// blur and AA
 	glEnable(GL_MULTISAMPLE);
-
+	
 	// load global shader
 	unsigned int program_id = load_shaders("main.vert", "main.frag");
 	glUseProgram(program_id);
