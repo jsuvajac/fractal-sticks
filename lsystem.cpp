@@ -18,9 +18,9 @@ using namespace std;
 // #define WIDTH 3440
 // #define HEIGHT 1440
 
-#define ANGLE_DELTA M_PI / 6
+#define ANGLE_DELTA M_PI / (6 * 2)
 #define FORWARD_DELTA 100
-#define ZOOM_FACTOR 1.8
+#define ZOOM_FACTOR 1.1
 
 struct Lsystem {
     // grammar alphabet subset that does not have production rules
@@ -31,9 +31,29 @@ struct Lsystem {
     map<string, string> rules;
     // angle magnitude for "+" and "-"
     double angle;
+	bool is_context_free;
 };
 
-void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, SDL_GLContext *gl_context, size_t width, size_t height) {
+void print_string(string out, size_t start)
+{
+	for(int i = start; i < out.size(); ++i) {
+		cout << out[i];
+	}
+	cout << endl;
+}
+
+template<typename T>
+void print_vector(vector<T> out, size_t start, size_t end = 0)
+{
+	int i = 0;
+	for(i = start; i < max(out.size(), end) -1; ++i) {
+		cout << out[i] << ", ";
+	}
+	cout << out[i] << endl;
+}
+
+void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, SDL_GLContext *gl_context, size_t width, size_t height)
+{
 	// create the window, renderer and gl context
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
 		std::cerr << "SDL2 video subsystem couldn't be initialized. Error: " << SDL_GetError() << std::endl;
@@ -75,10 +95,11 @@ void start_window_renderer_and_gl(SDL_Window **window, SDL_Renderer **renderer, 
 		std::cerr << "Failed to initialize the OpenGL context." << std::endl;
 		exit(1);
 	}
-	std::cout << "OpenGL version loaded: " << GLVersion.major << "." << GLVersion.minor << std::endl;
+	// std::cout << "OpenGL version loaded: " << GLVersion.major << "." << GLVersion.minor << std::endl;
 }
 
-unsigned int compile_shader(unsigned int shader_type, const std::string& shader_source) {
+unsigned int compile_shader(unsigned int shader_type, const std::string& shader_source)
+{
 	unsigned int shader_id = glCreateShader(shader_type);
 
 	const char* c_source = shader_source.c_str();
@@ -102,7 +123,8 @@ unsigned int compile_shader(unsigned int shader_type, const std::string& shader_
 	return shader_id;
 }
 
-unsigned int load_shaders(const std::string& vertexShaderFile, const std::string& fragmentShaderFile) {
+unsigned int load_shaders(const std::string& vertexShaderFile, const std::string& fragmentShaderFile)
+{
 	std::ifstream is_vs(vertexShaderFile);
 	const std::string f_vs((std::istreambuf_iterator<char>(is_vs)), std::istreambuf_iterator<char>());
 
@@ -126,30 +148,33 @@ unsigned int load_shaders(const std::string& vertexShaderFile, const std::string
 	return id;
 }
 
-string run_step(map<string, string> rules, string step, vector<string> constants) {
+string run_step_context_free(Lsystem system, string step)
+{
     // run single grammar generation step
     string out;
     for (size_t i = 0; i < step.size(); i++) {
         string current = string(1, step[i]);
-        if (find(constants.begin(), constants.end(), current) != constants.end())
+        if (find(system.constants.begin(), system.constants.end(), current) != system.constants.end())
             out.append(current);
         else
-            out.append(rules[current]);
+            out.append(system.rules[current]);
     }
     return out;
 }
 
-string generate_lsystem(string axiom, map<string, string> rules, vector<string> constants, size_t num_iterations) {
+// string generate_lsystem(string axiom, map<string, string> rules, vector<string> constants, size_t num_iterations) {
+string generate_lsystem(Lsystem system, size_t num_iterations)
+{
     // helper for running the desired number of iterations of an L-system given the starting axiom
-    string next_step = axiom;
+    string next_step = system.axiom;
     for (size_t i = 0; i < num_iterations; i++) {
-        // cout << i << " " << next_step << endl;
-        next_step = run_step(rules, next_step, constants);
+		next_step = run_step_context_free(system, next_step);
     }
     return next_step;
 }
 
-vector<float> generate_lines(string instructions, double angle_delta, double forward_distance) {
+vector<float> generate_lines(string instructions, double angle_delta, double forward_distance)
+{
     // run thrugh the insturction string one character at a time and run the character as an insturction
     // returns a flat array of lines serialized in order x1, y1, x2, y2
     vector<float> out_buffer;
@@ -160,13 +185,11 @@ vector<float> generate_lines(string instructions, double angle_delta, double for
     stack<tuple<double, double, double>> saved_position;
     for (size_t i = 0; i < instructions.size(); i++) {
         switch(instructions[i]) {
-            case 'X':
-                break;
             // move forward
             case 'F': {
                 // extend (x, y) with (0, forward_distance) and rotate to by the angle
-                double new_x = x - forward_distance*sin(angle);
-                double new_y = y + forward_distance*cos(angle);
+                double new_x = x + forward_distance*sin(angle);
+                double new_y = y - forward_distance*cos(angle);
 
                 out_buffer.push_back(+x);
                 out_buffer.push_back(-y);
@@ -179,24 +202,22 @@ vector<float> generate_lines(string instructions, double angle_delta, double for
             }
             // update angle
             case '-':
-                angle += angle_delta;
+                angle = fmod(angle - angle_delta, 2*M_PI);
                 break;
             case '+':
-                angle -= angle_delta;
+                angle = fmod(angle + angle_delta, 2*M_PI);
                 break;
             // push/pop position and angle stack
             case '[':
                 saved_position.push(tuple<double, double, double>(x, y, angle));
                 break;
             case ']':
-                if (!saved_position.empty()) {
-                    double pop_x, pop_y, pop_angle;
-                    tie(pop_x, pop_y, pop_angle) = saved_position.top();
-                    x = pop_x;
-                    y = pop_y;
-                    angle = pop_angle;
-                    saved_position.pop();
-                }
+				double pop_x, pop_y, pop_angle;
+				tie(pop_x, pop_y, pop_angle) = saved_position.top();
+				x = pop_x;
+				y = pop_y;
+				angle = pop_angle;
+				saved_position.pop();
                 break;
             default: break;
         }
@@ -204,15 +225,16 @@ vector<float> generate_lines(string instructions, double angle_delta, double for
     return out_buffer;
 }
 
-void populate_orthographic_projection_matrix(float screen_width, float screen_height, float transform[16]) {
+void populate_orthographic_projection_matrix(float screen_width, float screen_height, float transform[16])
+{
     float width = screen_width;
     float height = screen_height;
     float left = -width;
     float right = width * 1;
     float top = height * 1;
     float bottom = -height;
-    float near = 0;
-    float far = 100;
+    float near = -10000;
+    float far = 10000;
 
     transform[0] = (2 / (right - left));
     transform[5] = (2 / (top - bottom));
@@ -223,7 +245,9 @@ void populate_orthographic_projection_matrix(float screen_width, float screen_he
     transform[15] = 1;
 }
 
-int main(int argc, char* argv[]) {
+
+int main(int argc, char* argv[])
+{
 	const Uint8 *keyboard = NULL;
 	SDL_Window *window = NULL;
 	SDL_Renderer *renderer = NULL;
@@ -251,37 +275,70 @@ int main(int argc, char* argv[]) {
 			{"+", "-", "[", "]"},
 			"F",
 			{{"F", "F++F++F++F++F++F-F"}},
-			M_PI / 6
+			M_PI / 6,
+			true
 		},
 		{ // pretty tree
 			{"+", "-", "[", "]"},
 			"X",
 			{ {"X", "F+[[X]-X]-F[-FX]+X"}, {"F", "FF"}},
-			M_PI / 4
+			M_PI / 4,
+			true
 		},
 		{ // conifer
 			{"+", "-", "[", "]", "F"},
 			"Y",
 			{{"X", "X[-FFF][+FFF]FX"}, {"Y", "YFX[+Y][-Y]"}},
-			25.7 *M_PI/180
+			25.7 *M_PI/180,
+			true
 		},
 		{ // prong bush
 			{"+", "-", "[", "]"},
 			"F",
 			{{"F", "FF+[+F-F-F]-[-F+F+F]"} },
-			22.5*M_PI/180
+			22.5*M_PI/180,
+			true
 		},
 		{ // hilbert
 			{"+", "-", "[", "]", "F"},
 			"X",
 			{{"X", "-YF+XFX+FY-"}, {"Y", "+XF-YFY-FX+"}},
-			M_PI/2
+			M_PI/2,
+			true
 		},
 		{ // tile
 			{"+", "-", "[", "]"},
 			"F+F+F+F",
 			{{"F", "FF+F-F+F+FF"}},
-			M_PI/2
+			M_PI/2,
+			true
+		},
+		{ // penrose
+			{"+", "-", "[", "]"},
+			"[X]++[X]++[X]++[X]++[X]",
+			{
+				{"W", "YF++ZF----XF[-YF----WF]++"},
+				{"X", "+YF--ZF[---WF--XF]+"},
+				{"Y", "-WF++XF[+++YF++ZF]-"},
+				{"Z", "--YF++++WF[+ZF++++XF]--XF"},
+				{"F", ""}
+			},
+			36*M_PI/180,
+			true
+		},
+		{ // dragon
+			{"+", "-", "F"},
+			"FX",
+			{{"X", "X+YF+"}, {"Y", "-FX-Y"}},
+			M_PI / 2,
+			true
+		},
+		{ // C dragon
+			{"+", "-"},
+			"F",
+			{{"F", "F+F-"}},
+			M_PI / 2,
+			true
 		},
 	};
 
@@ -311,7 +368,7 @@ int main(int argc, char* argv[]) {
 		if (should_generate) {
 			// regenerate the instruction string and cachend lines buffer
 			Lsystem cur = fractals[fractal_index];
-			lsystem_instruction = generate_lsystem(cur.axiom, cur.rules, cur.constants, num_iterations);
+			lsystem_instruction = generate_lsystem(cur, num_iterations);
 			lsystem_lines = generate_lines(lsystem_instruction, cur.angle, forward_distance);
 			// cout << lsystem_lines.size() << endl;
 
@@ -330,21 +387,33 @@ int main(int argc, char* argv[]) {
 
 			should_generate = false;
 		}
-		if (should_draw) {
+		// if (should_draw) {
 			glUniformMatrix4fv(glGetUniformLocation(program_id, "transform"), 1, GL_FALSE, transform);
 			glUniform2f(glGetUniformLocation(program_id, "offset"), (float)screen_offset_x, (float)screen_offset_y); 
 			glUniform1f(glGetUniformLocation(program_id, "angle"), offset_angle); 
 			glUniform1f(glGetUniformLocation(program_id, "zoom"), zoom); 
+			glUniform1i(glGetUniformLocation(program_id, "numVertices"), lsystem_lines.size()); 
 
 			// re-draw the fractal
 			glClear(GL_COLOR_BUFFER_BIT);
 			glBindVertexArray(vao);
 			glDrawArrays(GL_LINES, 0, lsystem_lines.size());
-			glBindVertexArray(0);
+			// int len = 6;
+			// for (int i = -len/2; i < len/2; i++) {
+			// 	for (int ii = -len/2; ii < len/2; ii++) {
+			// 		glUniform2f(glGetUniformLocation(program_id, "offset"),
+			// 			(float)screen_offset_x + i  / zoom * (WIDTH / len * 2) + WIDTH / len / zoom,
+			// 			(float)screen_offset_y + ii / zoom * (HEIGHT / len * 2) + HEIGHT / len / zoom
+			// 		);
+			// 		glUniform1f(glGetUniformLocation(program_id, "angle"), offset_angle + i * (2 * M_PI / len) + ii * (2 * M_PI / len)); 
+			// 		glDrawArrays(GL_LINES, 0, lsystem_lines.size());
+			// 	}
+			// }
 
+			glBindVertexArray(0);
 			SDL_GL_SwapWindow(window);
 			should_draw = false;
-		}
+		// }
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
 			switch (event.type) {
@@ -369,6 +438,7 @@ int main(int argc, char* argv[]) {
 						case SDLK_r: screen_offset_x = 0; screen_offset_y = 0; offset_angle = 0; should_draw = true; break;
 						// cycle through fractals
 						case SDLK_f: fractal_index = (fractal_index + 1) % fractals.size(); should_generate = true; should_draw = true; break;
+						case SDLK_v: fractal_index = (fractal_index - 1) % fractals.size(); should_generate = true; should_draw = true; break;
 						// set number of iterations
 						case SDLK_1: num_iterations = 1; should_generate = true; should_draw = true; break;
 						case SDLK_2: num_iterations = 2; should_generate = true; should_draw = true; break;
@@ -379,6 +449,8 @@ int main(int argc, char* argv[]) {
 						case SDLK_7: num_iterations = 7; should_generate = true; should_draw = true; break;
 						case SDLK_8: num_iterations = 8; should_generate = true; should_draw = true; break;
 						case SDLK_9: num_iterations = 9; should_generate = true; should_draw = true; break;
+						case SDLK_MINUS: num_iterations -= 1; should_generate = true; should_draw = true; break;
+						case SDLK_EQUALS: num_iterations += 1; should_generate = true; should_draw = true; break;
 						default: break;
 					}
 					break;
