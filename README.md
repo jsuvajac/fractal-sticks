@@ -25,3 +25,7 @@ Run program
 remove everything from build
 
     clean
+
+### Linux
+
+    make
