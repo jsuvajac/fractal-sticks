@@ -1,4 +1,4 @@
-# Digitaria
+# fractal-sticks
 L-Stystems exploration
 
 ## Controls
